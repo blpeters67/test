@@ -27,7 +27,7 @@ class Button:
             self.toggled_hovered = button_images[4]
             self.toggled_selected = button_images[5]
             # scale the toggleable button images if a number was given
-            if scale != None:
+            if scale != 1 and scale != None:
                 print('scaling toggled buttons')
                 self.toggled_normal = pygame.transform.scale_by(self.toggled_normal, scale)
                 self.toggled_hovered = pygame.transform.scale_by(self.toggled_hovered, scale)
@@ -73,3 +73,9 @@ class Button:
 
     def draw(self, screen):
         screen.blit(self.current_image, self.rect)
+
+    def toggle(self):
+        if self.toggled:
+            self.toggled = False
+        else:
+            self.toggled = True

@@ -1,7 +1,17 @@
 import pygame
 from text import Text
 from button import Button
-from random import randint
+from pickaxe import Pickaxe
+from generatormanager import GeneratorManager
+
+def get_color_palette(surface, exclude):
+    array = pygame.PixelArray(surface)
+    colors = {tuple(surface.unmap_rgb(mapped_color)) for row in array for mapped_color in row}
+
+    if exclude:
+        return [color for color in colors if color not in exclude]
+
+    return list(colors)
 
 class Game():
    
@@ -9,50 +19,61 @@ class Game():
         self.name = name
         self.app = app
         self.paused = False
-        self.texts, self.money, self.human_readable_mps, self.mpc = self.load_game_data()
+        self.money, self.money_text = self.load_game_data()
+        self.human_legible_money = ""
+        self.button_last_hovered = ""
         self.pause_texts, self.pause_buttons, self.pause_menu = self.load_pause_menu_data()
+        self.pickaxe = Pickaxe()
+        self.generator_manager = GeneratorManager(self.app)
+        self.generator_manager.add_generator((3, 145))
+        self.generator_manager.add_generator((38, 145))
+        self.generator_manager.add_generator((73, 145))
 
 
     def draw(self):
 
-        for text in self.texts:
-            text.draw(self.app.screen)
+        self.money_text.draw(self.app.screen)
+        
+        self.generator_manager.draw()
 
         if self.paused:
-            self.app.screen.blit(self.pause_menu, (100, 140))
+            self.app.screen.blit(self.pause_menu, ((self.app.width/2)-35, (self.app.height/2)-38))
             for button in self.pause_buttons:
                 button.draw(self.app.screen)
             # draw the text on the buttons
             for text in self.pause_texts:
                 text.draw(self.app.screen)
 
+
     def update(self):
-        
-        # increment the money if game not paused; this is the money gained per second!
-        if not self.paused:
-            self.money += self.human_readable_mps/self.app.fps
+
+        self.human_legible_money = self.format_money()
 
         # update text and durations and stuff
-        self.texts = [text for text in self.texts if text.duration > 0 or text.duration == -1]
-        self.texts[1].text = f"${self.money:,.0f}"
-        self.texts[3].text = f"${self.human_readable_mps:,.0f}"
-        self.texts[5].text = f"${self.mpc:,.0f}"
-
-        for text in self.texts:
-            if text.duration == 0:
-                del text
-        print(len(self.texts))
-
+        self.money_text.text = f'{self.human_legible_money}'
+        self.money_text.update()
 
         # handle changing a (pause) button's image when hovered or clicked
         if self.paused:
+            self.button_counter = 0
             for button in self.pause_buttons:
                 if button.rect.collidepoint(self.app.mouse_pos) and self.app.lmb_down:
+                    if self.button_last_hovered != button.name:
+                        self.button_last_hovered = button.name
+                        self.app.sfx_player.button_hovered.play()
                     button.button_selected()
                 elif button.rect.collidepoint(self.app.mouse_pos) and not self.app.lmb_down:
                     button.button_hovered()
+                    if self.button_last_hovered != button.name:
+                        self.button_last_hovered = button.name
+                        self.app.sfx_player.button_hovered.play()
                 else:
                     button.button_normal()
+                    self.button_counter += 1
+            if self.button_counter == len(self.pause_buttons):
+                self.button_last_hovered = ""
+
+        self.generator_manager.update()
 
     def handle_events(self, events):
     
@@ -71,27 +92,30 @@ class Game():
 
                 # if that key was the space bar
                 elif event.key == pygame.K_SPACE and not self.paused:
-                    click_money = Text(self.app.fps, f'+${self.mpc:,.0f}', (51, 204, 51), self.app.screen, randint(50,800), randint(100,500), False)
-                    self.texts.append(click_money)
-                    self.money += self.mpc
+                    self.money += 1
 
             # detects left click being released and handles what
             # happens when it is released on a pause screen button
-            if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
                 if self.paused == True:
                     for button in self.pause_buttons:
                         if button.rect.collidepoint(self.app.mouse_pos):
                             if button.name == "resume":
                                 self.paused = False
                             elif button.name == "options":
+                                self.paused = False
                                 self.app.scene_manager.set_active_scene("options")
                             elif button.name == "menu":
                                 self.paused = False
-                                self.texts = [text for text in self.texts if text.text != f'+${self.mpc:,.0f}']
                                 self.app.scene_manager.set_active_scene("menu")
                             elif button.name == "quit":
                                 self.save_game_data()
                                 self.app.running = False
+
+        self.generator_manager.handle_events(events)
+
+            
+
 
     def load_game_data(self):
         f = open("save.txt", "r").readlines()
@@ -99,28 +123,8 @@ class Game():
             money = int(f[0][f[0].find("|")+1:].rstrip("\n"))
         except:
             money = float(f[0][f[0].find("|")+1:].rstrip("\n"))
-        try:
-            human_readable_mps = int(f[1][f[1].find("|")+1:].rstrip("\n"))
-        except:
-            human_readable_mps = float(f[1][f[1].find("|")+1:].rstrip("\n"))
-        try:
-            mpc = int(f[2][f[2].find("|")+1:].rstrip("\n"))
-        except:
-            mpc = float(f[2][f[2].find("|")+1:].rstrip("\n"))
-        current_balance_text = Text(-1, "Current balance:", (255, 255, 255), self.app.screen, 10, 3, False)
-        current_money_text = Text(-1, f'${money:,.0f}', (102, 255, 102), self.app.screen, 233, 3, False)
-        per_second_text = Text(-1, f'Per second:', (255, 255, 255), self.app.screen, 10, 33, False)
-        mps_text = Text(-1, human_readable_mps, (51, 204, 51), self.app.screen, 170, 33, False)
-        money_per_spacebar_press_text = Text(-1, f'Per space bar press:', (255, 255, 255), self.app.screen, 10, 63, False)
-        money_gained_per_spacebar_press_text = Text(-1, mpc, (51, 204, 51), self.app.screen, 298, 63, False)
-        texts = []
-        texts.append(current_balance_text) # 0
-        texts.append(current_money_text) # 1
-        texts.append(per_second_text) # 2
-        texts.append(mps_text) # 3
-        texts.append(money_per_spacebar_press_text) # 4
-        texts.append(money_gained_per_spacebar_press_text) # 5
-        return texts, money, human_readable_mps, mpc
+        money_text = Text(-1, f'${money:,.0f}', (51, 204, 51), 3, 0, False)
+        return money, money_text
     
 
     def load_pause_menu_data(self):
@@ -135,20 +139,19 @@ class Game():
         pause_menu = pygame.image.load("assets/textures/pause menu.png").convert_alpha()
         # create the five buttons
         button_images = [buttons[0], buttons[1], buttons[2]]
-        resume_game_button = Button("resume", 4, False, (112, 152), button_images)
-        options_button = Button("options", 4, False, (112, 204), button_images)
-        main_menu_button = Button("menu", 4, False, (112, 256), button_images)
-        save_and_quit_button = Button("quit", 4, False, (112, 308), button_images)
+        resume_game_button = Button("resume", 1, False, (129, 57), button_images)
+        options_button = Button("options", 1, False, (129, 75), button_images)
+        main_menu_button = Button("menu", 1, False, (129, 93), button_images)
+        save_and_quit_button = Button("quit", 1, False, (129, 111), button_images)
         buttons[0] = resume_game_button
         buttons[1] = options_button
         buttons[2] = main_menu_button
         buttons.append(save_and_quit_button)
-        pause_menu = pygame.transform.scale_by(pause_menu, 4)
         
-        resume_game_text = Text(-1, "Resume Game", (0, 0, 0), self.app.screen, resume_game_button.rect.centerx, resume_game_button.rect.centery-2, True)
-        options_text = Text(-1, "Options", (0, 0, 0), self.app.screen, options_button.rect.centerx, options_button.rect.centery-2, True)
-        main_menu_text = Text(-1, "Main Menu", (0, 0, 0), self.app.screen, main_menu_button.rect.centerx, main_menu_button.rect.centery-2, True) 
-        save_and_quit_text = Text(-1, "Save and Quit", (0, 0, 0), self.app.screen, save_and_quit_button.rect.centerx, save_and_quit_button.rect.centery-2, True)
+        resume_game_text = Text(-1, "Resume", (0, 31, 88), resume_game_button.rect.centerx, resume_game_button.rect.centery-1, True)
+        options_text = Text(-1, "Options", (0, 31, 88), options_button.rect.centerx, options_button.rect.centery-1, True)
+        main_menu_text = Text(-1, "Main Menu", (0, 31, 88), main_menu_button.rect.centerx, main_menu_button.rect.centery-1, True) 
+        save_and_quit_text = Text(-1, "Exit Game", (0, 31, 88), save_and_quit_button.rect.centerx, save_and_quit_button.rect.centery-1, True)
         texts = []
         texts.append(resume_game_text)
         texts.append(options_text)
@@ -156,3 +159,17 @@ class Game():
         texts.append(save_and_quit_text)
 
         return texts, buttons, pause_menu
+    
+    def format_money(self):
+        # make the money human-legible
+        if self.money >= 1000000000000:
+            human_legible_money = f"${self.money/1000000000000:.2f}T"
+        elif self.money >= 1000000000:
+            human_legible_money = f"${self.money/1000000000:.2f}B"
+        elif self.money >= 1000000:
+            human_legible_money = f"${self.money/1000000:.2f}M"
+        elif self.money >= 1000:
+            human_legible_money = f"${self.money/1000:.2f}K"
+        else:
+            human_legible_money = f"${self.money:.0f}"
+        return human_legible_money
